@@ -5,6 +5,9 @@ import numpy as np
 import matplotlib.pyplot as plt
 import heapq
 from Queue import Queue
+from navigators import *
+from maps import *
+from collections import Counter
 
 class OGrid:
     def __init__(self):
@@ -17,121 +20,6 @@ class OGrid:
 
     def setOGrid(self, grid):
         self.oGrid = grid.astype(np.float16)
-
-class NavigatorRandom:
-    def __init__(self):
-        # 0=obstacle, 1=free, .5=unknown
-        self.oGrid = None
-        self.viewRadius = 1
-
-    def initOGrid(self, amap):
-        self.oGrid = np.empty_like(amap.oGrid)
-        self.oGrid.fill(0.5)
-
-    def getMove(self, x, y):
-        # 0 is up, 1 is up right, 2 is right, etc.
-        return random.randint(0, 7)
-
-    def updateOGrid(self, x, y, val):
-        self.oGrid[y, x] = val
-
-    def showOGrid(self):
-        plt.imshow(self.oGrid, interpolation='none')
-        plt.show()
-
-class NavigatorCurious(NavigatorRandom):
-    def getMove(self, x, y):
-        if self.oGrid[y + 1, x + 1] == 0.5:
-            return 3
-        if self.oGrid[y + 1, x - 1] == 0.5:
-            return 5
-        if self.oGrid[y - 1, x - 1] == 0.5:
-            return 7
-        if self.oGrid[y - 1, x + 1] == 0.5:
-            return 1
-        if self.oGrid[y - 1, x] == 0.5:
-            return 0
-        if self.oGrid[y + 1, x] == 0.5:
-            return 4
-        if self.oGrid[y, x + 1] == 0.5:
-            return 2
-        if self.oGrid[y, x - 1] == 0.5:
-            return 6
-        return random.randint(0, 7)
-
-class NavigatorStraight(NavigatorRandom):
-    def __init__(self, randomness): # 0.3 seems pretty good for randomness
-        # 0=obstacle, 1=free, .5=unknown
-        self.oGrid = None
-        self.viewRadius = 1
-        self.direction = 0
-        self.randomness = randomness
-    def getMove(self, x, y):
-        if random.random() < self.randomness:
-            self.direction = random.randint(0, 3) * 2
-        while True:
-            if self.direction == 0:
-                if self.oGrid[y - 1, x] != 0:
-                    return 0
-                else:
-                    self.direction = 2
-            if self.direction == 2:
-                if self.oGrid[y, x + 1] != 0:
-                    return 2
-                else:
-                    self.direction = 4
-            if self.direction == 4:
-                if self.oGrid[y + 1, x] != 0:
-                    return 4
-                else:
-                    self.direction = 6
-            if self.direction == 6:
-                if self.oGrid[y, x - 1] != 0:
-                    return 6
-                else:
-                    self.direction = 0
-
-class NavigatorBFS(NavigatorRandom):
-    def __init__(self):
-        # 0=obstacle, 1=free, .5=unknown
-        self.oGrid = None
-        self.viewRadius = 1
-        self.directionQ = Queue()
-    def getMove(self, x, y):
-        if not self.directionQ.empty():
-            return self.directionQ.get()
-        h, w = self.oGrid.shape
-        openI = Queue()
-        closedI = set()
-        path = []
-        openI.put((x, y))
-        while not openI.empty():
-            cx, cy = openI.get()
-            while (cx, cy) in closedI:
-                if openI.empty():
-                    return 0
-                cx, cy = openI.get()
-            path.append((cx, cy))
-            closedI.add((cx, cy))
-            for i in [cx - 1, cx, cx + 1]:
-                for j in [cy - 1, cy, cy + 1]:
-                    if (i, j) in closedI:
-                        continue
-                    if not (i >= 0 and i < w and j >= 0 and j < h) or self.oGrid[j, i] == 0:
-                        continue
-                    if self.oGrid[j, i] == 0.5:
-                        print path
-                        # dirs = directionsFromPath(path)
-                        print x, y, i, j
-                        dirs = AStar(self.oGrid, x, y, cx, cy)
-                        print dirs
-                        for dire in dirs:
-                           self.directionQ.put(dire)
-                        return self.directionQ.get()
-                    openI.put((i, j))
-            del path[-1]
-        return 0
-
 
 def dist(x0, y0, x1, y1):
     return ((x0 - x1) ** 2 + (y0 - y1) ** 2) ** 0.5
@@ -226,6 +114,10 @@ def fractionExplored(oGrid):
     d = dict(zip(unique, counts))
     return 1 - d.get(0.5, 0) / float(oGrid.size)
 
+def fractionRepeated(xlist, ylist):
+    d = Counter(zip(xlist, ylist))
+    return (len(xlist) - len(d.keys())) / float(len(xlist))
+
 def explore(nav, amap, iterations):
     x = amap.roboStartx
     y = amap.roboStarty
@@ -233,9 +125,13 @@ def explore(nav, amap, iterations):
     # List of positions for plotting later
     xPosns = [0] * iterations
     yPosns = [0] * iterations
+    explored = [0] * iterations
+    repeats = [0] * iterations
     for iter in range(iterations):
         xPosns[iter] = x
         yPosns[iter] = y
+        explored[iter] = fractionExplored(nav.oGrid)
+        repeats[iter] = fractionRepeated(xPosns[:iter + 1], yPosns[:iter + 1])
         updateRoboGrid(nav, amap, x, y)
         move = nav.getMove(x, y)
         if (move == 0) and (y - 1 >= 0) and (amap.oGrid[y - 1, x] == 1):
@@ -266,21 +162,42 @@ def explore(nav, amap, iterations):
     plt.ylim(0, h - 1)
     plt.axis('off')
     plt.show()
+    return (repeats, explored)
 
 if __name__ == '__main__':
     mapa = OGrid()
-    arr = np.full((16, 16), 1)
-    arr[0, :] = 0
-    arr[-1, :] = 0
-    arr[:, 0] = 0
-    arr[:, -1] = 0
-    arr[2:4, 2:4] = 0
-    mapa.setOGrid(arr)
-    mapa.roboStartx = 8
-    mapa.roboStarty = 8
-    # magellan = NavigatorRandom()
-    # magellan = NavigatorCurious()
-    # magellan = NavigatorStraight(randomness=0.3)
-    magellan = NavigatorBFS()
-    magellan.initOGrid(mapa)
-    explore(magellan, mapa, 160)
+    mapa.setOGrid(bigMap())
+    mapa.roboStartx = 59
+    mapa.roboStarty = 59
+
+    # magellan0 = NavigatorRandom()
+    # magellan1 = NavigatorCurious()
+    # magellan2 = NavigatorStraight(randomness=0.3)
+    # magellan3 = NavigatorBFS()
+    # magellan0.initOGrid(mapa)
+    # magellan1.initOGrid(mapa)
+    # magellan2.initOGrid(mapa)
+    # magellan3.initOGrid(mapa)
+    # repeats0, explored0 = explore(magellan0, mapa, 2000)
+    # repeats1, explored1 = explore(magellan1, mapa, 2000)
+    # repeats2, explored2 = explore(magellan2, mapa, 2000)
+    # repeats3, explored3 = explore(magellan3, mapa, 2000)
+    # fig, ax = plt.subplots()
+    # plt.plot(repeats0, explored0, label='Random Navigator')
+    # plt.plot(repeats1, explored1, label='Curious Navigator')
+    # plt.plot(repeats2, explored2, label='Straight Navigator')
+    # plt.plot(repeats3, explored3, label='BFS Navigator')
+    # plt.xlabel('Fraction repeated positions')
+    # plt.ylabel('Fraction map explored')
+    # plt.ylim(0, 1)
+    # plt.xlim(-0.01, .6)
+    # plt.title('Map explored vs repeated positions')
+    # plt.legend()
+    # plt.show()
+    mapa.setOGrid(bigMap())
+    h, w = mapa.oGrid.shape
+    plt.imshow(mapa.oGrid, interpolation='none', cmap='gray', vmin=0, vmax=1)
+    plt.xlim(0, w - 1)
+    plt.ylim(0, h - 1)
+    plt.axis('off')
+    plt.show()
