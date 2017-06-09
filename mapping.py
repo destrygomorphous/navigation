@@ -4,6 +4,7 @@ import random
 import numpy as np
 import matplotlib.pyplot as plt
 import heapq
+from Queue import Queue
 
 class OGrid:
     def __init__(self):
@@ -90,17 +91,55 @@ class NavigatorStraight(NavigatorRandom):
                 else:
                     self.direction = 0
 
+class NavigatorBFS(NavigatorRandom):
+    def __init__(self):
+        # 0=obstacle, 1=free, .5=unknown
+        self.oGrid = None
+        self.viewRadius = 1
+        self.directionQ = Queue()
+    def getMove(self, x, y):
+        if not self.directionQ.empty():
+            return self.directionQ.get()
+        h, w = self.oGrid.shape
+        openI = Queue()
+        closedI = set()
+        path = []
+        openI.put((x, y))
+        while not openI.empty():
+            cx, cy = openI.get()
+            while (cx, cy) in closedI:
+                if openI.empty():
+                    return 0
+                cx, cy = openI.get()
+            path.append((cx, cy))
+            closedI.add((cx, cy))
+            for i in [cx - 1, cx, cx + 1]:
+                for j in [cy - 1, cy, cy + 1]:
+                    if (i, j) in closedI:
+                        continue
+                    if not (i >= 0 and i < w and j >= 0 and j < h) or self.oGrid[j, i] == 0:
+                        continue
+                    if self.oGrid[j, i] == 0.5:
+                        print path
+                        # dirs = directionsFromPath(path)
+                        print x, y, i, j
+                        dirs = AStar(self.oGrid, x, y, cx, cy)
+                        print dirs
+                        for dire in dirs:
+                           self.directionQ.put(dire)
+                        return self.directionQ.get()
+                    openI.put((i, j))
+            del path[-1]
+        return 0
+
+
 def dist(x0, y0, x1, y1):
     return ((x0 - x1) ** 2 + (y0 - y1) ** 2) ** 0.5
 
-def reconstructPath(cameFrom, c):
-    totalPath = [c]
-    while c in cameFrom.keys():
-        c = cameFrom[c]
-        totalPath.append(c)
-    print totalPath
+def directionsFromPath(path):
     directions = []
-    for n in reversed(totalPath[:-1]):
+    c = path[0]
+    for n in path[1:]:
         if n[1] - c[1] == -1 and n[0] == c[0]:
             directions.append(0)
         elif n[1] - c[1] == -1 and n[0] - c[0] == 1:
@@ -120,7 +159,17 @@ def reconstructPath(cameFrom, c):
         else:
             print "fuck"
         c = n
-    print directions
+    return directions
+
+def reconstructPath(cameFrom, c):
+    totalPath = [c]
+    while c in cameFrom.keys():
+        c = cameFrom[c]
+        totalPath.append(c)
+    # print totalPath
+    directions = directionsFromPath(list(reversed(totalPath)))
+    # print directions
+    return directions
 
 # sx and sy are the start coordinates, ex and ey the end
 # Returns a list of directions to take
@@ -175,7 +224,7 @@ def updateRoboGrid(nav, amap, x, y):
 def fractionExplored(oGrid):
     unique, counts = np.unique(oGrid, return_counts=True)
     d = dict(zip(unique, counts))
-    return d[0.5] / float(oGrid.size)
+    return 1 - d.get(0.5, 0) / float(oGrid.size)
 
 def explore(nav, amap, iterations):
     x = amap.roboStartx
@@ -209,6 +258,7 @@ def explore(nav, amap, iterations):
         elif (move == 7) and (y - 1 >= 0) and (x - 1 >= 0) and (amap.oGrid[y - 1, x - 1] == 1):
             y -= 1
             x -= 1
+    print fractionExplored(nav.oGrid)
     implot = plt.imshow(nav.oGrid, interpolation='none', cmap='gray', vmin=0, vmax=1)
     plt.scatter([xPosns[0]], [yPosns[0]], s=80)
     plt.plot(xPosns, yPosns, c='r')
@@ -216,7 +266,6 @@ def explore(nav, amap, iterations):
     plt.ylim(0, h - 1)
     plt.axis('off')
     plt.show()
-    print fractionExplored(nav.oGrid)
 
 if __name__ == '__main__':
     mapa = OGrid()
@@ -231,6 +280,7 @@ if __name__ == '__main__':
     mapa.roboStarty = 8
     # magellan = NavigatorRandom()
     # magellan = NavigatorCurious()
-    magellan = NavigatorStraight(randomness=0.1)
+    # magellan = NavigatorStraight(randomness=0.3)
+    magellan = NavigatorBFS()
     magellan.initOGrid(mapa)
-    explore(magellan, mapa, 80)
+    explore(magellan, mapa, 160)
